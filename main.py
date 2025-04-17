@@ -7,7 +7,7 @@ import time
 from flask import Flask, render_template,request, url_for, redirect,session
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
-
+from datetime import datetime, timedelta
 
 
 app= Flask(__name__)
@@ -68,6 +68,9 @@ def home():
         return redirect(url_for('dashboard'))
     return render_template("home.html")
 
+
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == 'POST':
@@ -94,7 +97,7 @@ def dashboard():
     profile_data = UserProfile.query.filter_by(user_id=user.id).first()
 
     if not profile_data:
-        return redirect(url_for('form'))  # Or show a message that profile isn't complete
+        return redirect(url_for('form'))
 
     profile = {
         "full_name": profile_data.full_name,
@@ -120,7 +123,6 @@ def dashboard():
         "parent_occupation": profile_data.parent_occupation
     }
 
-    # Fetch all scholarships (using sqlite3 for now, which is okay here if data is already stored)
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM scholarships")
@@ -150,6 +152,7 @@ def dashboard():
             })
 
     return render_template("dashboard.html", profile=profile, scholarships=eligible_scholarships)
+
 
 
     # Fetch all scholarships
@@ -267,11 +270,11 @@ def profile():
 
 
 
-urls_title = [
-    'https://scholarshipforme.com/scholarships?state=State&qualification=&category=sc_st_obc&origin=&type=&availability=&form_botcheck=',
-    'https://scholarshipforme.com/scholarships?state=State&qualification=&category=girls&origin=&type=&availability=&form_botcheck=',
-    'https://scholarshipforme.com/scholarships?state=State&qualification=&category=obc&origin=&type=&availability=&form_botcheck=',
-]
+# urls_title = [
+#     'https://scholarshipforme.com/scholarships?state=State&qualification=&category=sc_st_obc&origin=&type=&availability=&form_botcheck=',
+#     'https://scholarshipforme.com/scholarships?state=State&qualification=&category=girls&origin=&type=&availability=&form_botcheck=',
+#     'https://scholarshipforme.com/scholarships?state=State&qualification=&category=obc&origin=&type=&availability=&form_botcheck=',
+# ]
 
 details_part1 = [
     'https://scholarshipforme.com/scholarships/the-education-future-international-scholarship',
@@ -285,7 +288,6 @@ details_part1 = [
     'https://scholarshipforme.com/scholarships/top-class-education-scheme-for-sc-students',
     'https://scholarshipforme.com/scholarships/-life-s-good-scholarship-program-2024',
 ]
-
 details_part2 = [
     'https://scholarshipforme.com/scholarships/the-education-future-international-scholarship',
     'https://scholarshipforme.com/scholarships/dxc-progressing-minds-scholarship-2023-24',
@@ -297,27 +299,24 @@ details_part2 = [
     'https://scholarshipforme.com/scholarships/indira-gandhi-scholarship-for-single-girl',
     'https://scholarshipforme.com/scholarships/cbse-single-girl-child-scholarship',
     'https://scholarshipforme.com/scholarships/clinic-plus-scholarship',
-    
 ]
-
 details_part3 = [
     'https://scholarshipforme.com/scholarships/the-education-future-international-scholarship',
     'https://scholarshipforme.com/scholarships/-life-s-good-scholarship-program-2024',
-     'https://scholarshipforme.com/scholarships/dr-a-p-j-abdul-kalam-ignite',
-     'https://scholarshipforme.com/scholarships/clp-india-this-scholarship',
-     'https://scholarshipforme.com/scholarships/drdo-itr-chandipur-graduate-technician-diploma-apprenticeship-2023',
-     'https://scholarshipforme.com/scholarships/the-medhaavi-engineering-scholarship-program-2023-24',
-     'https://scholarshipforme.com/scholarships/empowerment-and-equity-opportunities-for-excellence-in-science',
-     'https://scholarshipforme.com/scholarships/h-h-dalai-lama-sasakawa-scholarship',
-     'https://scholarshipforme.com/scholarships/aicte-civil-engineering-internship-cei-9214',
-     'https://scholarshipforme.com/scholarships/university-of-southampton---great-scholarships',
+    'https://scholarshipforme.com/scholarships/dr-a-p-j-abdul-kalam-ignite',
+    'https://scholarshipforme.com/scholarships/clp-india-this-scholarship',
+    'https://scholarshipforme.com/scholarships/drdo-itr-chandipur-graduate-technician-diploma-apprenticeship-2023',
+    'https://scholarshipforme.com/scholarships/the-medhaavi-engineering-scholarship-program-2023-24',
+    'https://scholarshipforme.com/scholarships/empowerment-and-equity-opportunities-for-excellence-in-science',
+    'https://scholarshipforme.com/scholarships/h-h-dalai-lama-sasakawa-scholarship',
+    'https://scholarshipforme.com/scholarships/aicte-civil-engineering-internship-cei-9214',
+    'https://scholarshipforme.com/scholarships/university-of-southampton---great-scholarships',
 ]
-
 urls_details = details_part1 + details_part2 + details_part3
 
-# -------------------------------
-# 2. SQLite DB Setup
-# -------------------------------
+# ----------------------------------
+# SQLite Setup
+# ----------------------------------
 conn = sqlite3.connect('users.db')
 cursor = conn.cursor()
 
@@ -327,14 +326,47 @@ CREATE TABLE IF NOT EXISTS scholarships (
     title TEXT,
     overview TEXT,
     eligibility_criteria TEXT,
-    how_to_apply TEXT
+    how_to_apply TEXT,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS update_info (
+    id INTEGER PRIMARY KEY,
+    last_run TIMESTAMP
+)
+''')
+
 conn.commit()
 
-# -------------------------------
-# 3. Random Header Fetcher
-# -------------------------------
+# ----------------------------------
+# Check If Update Needed
+# ----------------------------------
+cursor.execute("SELECT COUNT(*) FROM scholarships")
+count = cursor.fetchone()[0]
+
+cursor.execute("SELECT last_run FROM update_info WHERE id = 1")
+last_run_row = cursor.fetchone()
+
+should_update = False
+now = datetime.now()
+
+if count == 0:
+    should_update = True
+elif last_run_row:
+    last_run_time = datetime.strptime(last_run_row[0], "%Y-%m-%d %H:%M:%S")
+    if now - last_run_time >= timedelta(hours=24):
+        should_update = True
+else:
+    should_update = True
+
+print("🕒 Last update time:", last_run_row[0] if last_run_row else "None")
+print("🔄 Should update:", should_update)
+
+# ----------------------------------
+# Random Header for Requests
+# ----------------------------------
 def fetch_page(url):
     headers = {
         'User-Agent': random.choice([
@@ -354,29 +386,17 @@ def fetch_page(url):
         print(f"🚫 Failed to fetch {url}: {e}")
     return None
 
-# -------------------------------
-# 4. Parse Titles (h4 inside .job-content)
-# -------------------------------
-def parse_titles(html):
-    soup = bs(html, 'html.parser')
-    titles = []
-    for section in soup.find_all("div", class_="job-content"):
-        h4 = section.find("h4")
-        if h4:
-            titles.append(h4.get_text(strip=True))
-    return titles
-
-# -------------------------------
-# 5. Parse Details
-# -------------------------------
+# ----------------------------------
+# Parser Function
+# ----------------------------------
 def parse_details(html):
     soup = bs(html, 'html.parser')
 
-    # Overview from <ul class="job-overview"><li>
+    # Overview
     overview_list = soup.select("ul.job-overview li")
     overview_text = "\n".join([li.get_text(strip=True) for li in overview_list])
 
-    # Eligibility from <ul> inside <article class="scholarshipDetails_sectionBox__2cUvO">
+    # Eligibility
     eligibility_text = ""
     article = soup.find("article", class_="scholarshipDetails_sectionBox__2cUvO")
     if article:
@@ -384,7 +404,7 @@ def parse_details(html):
         if ul_tag:
             eligibility_text = "\n".join([li.get_text(strip=True) for li in ul_tag.find_all("li")])
 
-    # How to Apply from last <p> in <div class="job-details-body">
+    # How to Apply
     apply_text = ""
     job_details_div = soup.find("div", class_="job-details-body")
     if job_details_div:
@@ -394,72 +414,46 @@ def parse_details(html):
 
     return overview_text, eligibility_text, apply_text
 
-# -------------------------------
-# 6. Insert Titles into DB
-# -------------------------------
-# 6. Insert up to 30 Titles into DB
-total_titles_inserted = 0
-max_entries = 30
-titles_collected = []
+# ----------------------------------
+# Data Update Logic
+# ----------------------------------
+if should_update:
+    print("🚀 Starting update...")
 
-for url in urls_title:
-    if total_titles_inserted >= max_entries:
-        break
-    html = fetch_page(url)
-    if html:
-        titles = parse_titles(html)
-        for title in titles:
-            if total_titles_inserted < max_entries:
-                cursor.execute("INSERT INTO scholarships (title) VALUES (?)", (title,))
-                titles_collected.append(title)
-                total_titles_inserted += 1
+    max_entries = 30
+    for index, url in enumerate(urls_details[:max_entries]):
+        html = fetch_page(url)
+        if html:
+            overview, eligibility, apply = parse_details(html)
+
+            if index < count:
+                # Update existing record
+                cursor.execute('''
+                    UPDATE scholarships
+                    SET overview = ?, eligibility_criteria = ?, how_to_apply = ?, last_updated = ?
+                    WHERE id = ?
+                ''', (overview, eligibility, apply, now, index + 1))
             else:
-                break
-    time.sleep(random.uniform(1, 2))
+                # Insert new record
+                cursor.execute('''
+                    INSERT INTO scholarships (title, overview, eligibility_criteria, how_to_apply, last_updated)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (f"Scholarship {index+1}", overview, eligibility, apply, now))
 
-conn.commit()
-print(f"✅ Inserted {total_titles_inserted} titles.\n")
+            conn.commit()
+        time.sleep(random.uniform(1, 2))
 
-# 7. Update Details only for the first 30 detail URLs
-for index, url in enumerate(urls_details[:max_entries]):
-    html = fetch_page(url)
-    if html:
-        overview, eligibility, apply = parse_details(html)
-        cursor.execute('''
-            UPDATE scholarships
-            SET overview = ?, eligibility_criteria = ?, how_to_apply = ?
-            WHERE id = ?
-        ''', (overview, eligibility, apply, index + 1))
-        conn.commit()
-    time.sleep(random.uniform(1, 2))
+    # Update metadata table
+    cursor.execute('''
+        INSERT INTO update_info (id, last_run)
+        VALUES (1, ?)
+        ON CONFLICT(id) DO UPDATE SET last_run=excluded.last_run
+    ''', (now.strftime("%Y-%m-%d %H:%M:%S"),))
 
-
-conn.commit()
-print(f"✅ Inserted {total_titles_inserted} titles.\n")
-
-# -------------------------------
-# 7. Update Details into DB by ID
-# -------------------------------
-for index, url in enumerate(urls_details):
-    html = fetch_page(url)
-    if html:
-        overview, eligibility, apply = parse_details(html)
-        cursor.execute('''
-            UPDATE scholarships
-            SET overview = ?, eligibility_criteria = ?, how_to_apply = ?
-            WHERE id = ?
-        ''', (overview, eligibility, apply, index + 1))
-        conn.commit()
-    time.sleep(random.uniform(1, 2))
-
-print("✅ All detail data updated successfully.")
-
-# -------------------------------
-# 8. Optional: Show Results
-# -------------------------------
-cursor.execute("SELECT * FROM scholarships")
-for row in cursor.fetchall():
-    print(row)
+    conn.commit()
+    print("✅ Scholarships updated successfully.")
+else:
+    print("🛑 No update needed. Less than 24 hours since last fetch.")
 
 conn.close()
 
